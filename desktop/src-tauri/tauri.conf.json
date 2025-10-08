@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Photo Organizer",
+  "version": "0.1.0",
+  "identifier": "com.danielchayes.photo-organizer",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Photo Organizer",
+        "width": 1200,
+        "height": 900,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' http://localhost:3000; img-src 'self' data: blob: http://localhost:3000; connect-src 'self' http://localhost:3000 ws://localhost:1420; style-src 'self' 'unsafe-inline' http://localhost:3000; script-src 'self' 'unsafe-eval' 'unsafe-inline' http://localhost:3000"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {}
+}

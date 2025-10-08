@@ -1,0 +1,19 @@
+# Development dependencies
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-asyncio==0.21.1
+httpx==0.25.2  # For testing FastAPI endpoints
+
+# Linting and formatting
+ruff==0.1.9  # Fast Python linter (replaces flake8, isort, etc.)
+black==23.12.1
+mypy==1.8.0
+
+# Type stubs
+types-Pillow==10.1.0.2
+
+# Security
+bandit==1.7.6
+safety==2.3.5

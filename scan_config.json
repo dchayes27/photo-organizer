@@ -1,0 +1,37 @@
+{
+  "scan_paths": [
+    "~/Desktop",
+    "~/Documents",
+    "~/Pictures"
+  ],
+  "exclude_patterns": [
+    "Library",
+    "System",
+    "private",
+    ".Trash",
+    "Library/CloudStorage",
+    "Dropbox",
+    "dropboxa",
+    "Photos Library.photoslibrary",
+    ".photoslibrary",
+    "node_modules",
+    ".git",
+    ".vscode",
+    ".cursor",
+    "vendor",
+    "build",
+    "dist",
+    "__pycache__",
+    ".pytest_cache",
+    ".local",
+    ".config",
+    ".cache",
+    ".npm",
+    ".nvm",
+    ".pyenv",
+    ".conda",
+    "thumbnails",
+    "waveforms"
+  ],
+  "additional_excludes": []
+}

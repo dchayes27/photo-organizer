@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Photo Organizer</title>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      }
+      .center {
+        display: grid;
+        place-items: center;
+        height: 100%;
+        color: white;
+      }
+      .splash-content {
+        text-align: center;
+      }
+      h1 {
+        font-size: 32px;
+        font-weight: 600;
+        margin: 0 0 20px 0;
+      }
+      .status {
+        margin-top: 16px;
+        font-size: 14px;
+        opacity: 0.9;
+        min-height: 20px;
+      }
+      .spinner {
+        width: 40px;
+        height: 40px;
+        margin: 20px auto;
+        border: 4px solid rgba(255, 255, 255, 0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <div class="center">
+      <div class="splash-content">
+        <h1>🖼️ Photo Organizer</h1>
+        <div class="spinner"></div>
+        <div id="status" class="status">Starting server...</div>
+      </div>
+    </div>
+  </body>
+</html>
