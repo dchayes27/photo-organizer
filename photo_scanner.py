@@ -19,6 +19,10 @@ from PIL import Image
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Increase PIL decompression bomb protection limit for large TIF files
+# Default is ~178 million pixels, increase to 500 million for high-res photos
+Image.MAX_IMAGE_PIXELS = 500_000_000
+
 # Image extensions to scan
 IMAGE_EXTENSIONS = {
     # Standard formats
