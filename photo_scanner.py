@@ -4,14 +4,16 @@ Photo Organizer - Scan and index all photos on your Mac
 Finds duplicates, generates thumbnails, provides searchable interface
 """
 
-import os
 import hashlib
-import sqlite3
 import json
-from pathlib import Path
-from datetime import datetime
-from PIL import Image
 import logging
+import os
+import sqlite3
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from PIL import Image
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -91,26 +93,34 @@ SKIP_DIRS = {
 }
 
 class PhotoOrganizer:
-    def __init__(self, db_path='photos.db', thumbnail_dir='thumbnails', config_path='scan_config.json'):
-        self.db_path = db_path
-        self.thumbnail_dir = Path(thumbnail_dir)
+    def __init__(
+        self,
+        db_path: str = 'photos.db',
+        thumbnail_dir: str = 'thumbnails',
+        config_path: str = 'scan_config.json'
+    ) -> None:
+        self.db_path: str = db_path
+        self.thumbnail_dir: Path = Path(thumbnail_dir)
         self.thumbnail_dir.mkdir(exist_ok=True)
-        self.config_path = config_path
+        self.config_path: str = config_path
+        self.exclude_patterns: set[str] = set()
         self.load_config()
         self.init_database()
 
-    def load_config(self):
+    def load_config(self) -> None:
         """Load scan configuration from JSON file"""
         if os.path.exists(self.config_path):
-            with open(self.config_path, 'r') as f:
-                config = json.load(f)
-                self.exclude_patterns = set(config.get('exclude_patterns', [])) | set(config.get('additional_excludes', []))
+            with open(self.config_path) as f:
+                config: dict[str, Any] = json.load(f)
+                self.exclude_patterns = set(config.get('exclude_patterns', [])) | set(
+                    config.get('additional_excludes', [])
+                )
         else:
             # Fall back to hardcoded SKIP_DIRS
             self.exclude_patterns = SKIP_DIRS
         logger.info(f"Loaded {len(self.exclude_patterns)} exclude patterns")
 
-    def init_database(self):
+    def init_database(self) -> None:
         """Initialize SQLite database"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -143,7 +153,7 @@ class PhotoOrganizer:
         conn.close()
         logger.info(f"Database initialized at {self.db_path}")
 
-    def calculate_hash(self, file_path, chunk_size=8192):
+    def calculate_hash(self, file_path: Path, chunk_size: int = 8192) -> str | None:
         """Calculate SHA256 hash of file"""
         sha256 = hashlib.sha256()
         try:
@@ -155,7 +165,7 @@ class PhotoOrganizer:
             logger.error(f"Error hashing {file_path}: {e}")
             return None
 
-    def generate_thumbnail(self, image_path, max_size=300):
+    def generate_thumbnail(self, image_path: Path, max_size: int = 300) -> str | None:
         """Generate thumbnail for image"""
         try:
             # Create thumbnail filename based on hash
@@ -188,13 +198,13 @@ class PhotoOrganizer:
             logger.error(f"Error generating thumbnail for {image_path}: {e}")
             return None
 
-    def extract_metadata(self, image_path):
+    def extract_metadata(self, image_path: Path) -> dict[str, Any] | None:
         """Extract image metadata"""
         try:
             with Image.open(image_path) as img:
                 # Get EXIF data if available
                 exif = img.getexif()
-                date_taken = None
+                date_taken: datetime | None = None
 
                 if exif:
                     # Try to get DateTimeOriginal (tag 36867)
@@ -202,7 +212,7 @@ class PhotoOrganizer:
                     if date_taken_str:
                         try:
                             date_taken = datetime.strptime(date_taken_str, '%Y:%m:%d %H:%M:%S')
-                        except:
+                        except Exception:
                             pass
 
                 return {
@@ -215,7 +225,7 @@ class PhotoOrganizer:
             logger.error(f"Error extracting metadata from {image_path}: {e}")
             return None
 
-    def detect_storage_location(self, file_path):
+    def detect_storage_location(self, file_path: Path) -> tuple[str, str]:
         """Detect where the file is stored"""
         path_str = str(file_path)
 
@@ -235,10 +245,15 @@ class PhotoOrganizer:
         # Other locations
         return 'Other', 'System'
 
-    def categorize_photo(self, file_path, width=None, height=None, date_taken=None):
+    def categorize_photo(
+        self,
+        file_path: Path,
+        width: int | None = None,
+        height: int | None = None,
+        date_taken: datetime | None = None
+    ) -> str:
         """Categorize photo based on filename, dimensions, and metadata"""
         filename = file_path.name.lower()
-        path_str = str(file_path).lower()
 
         # Screenshot detection
         screenshot_patterns = [
@@ -306,12 +321,12 @@ class PhotoOrganizer:
         # Default to 'image' if can't categorize
         return 'image'
 
-    def should_skip_directory(self, dir_path):
+    def should_skip_directory(self, dir_path: Path) -> bool:
         """Check if directory should be skipped"""
         dir_str = str(dir_path)
         return any(skip_dir in dir_str for skip_dir in self.exclude_patterns)
 
-    def scan_directory(self, root_dir, max_depth=10):
+    def scan_directory(self, root_dir: str, max_depth: int = 10) -> None:
         """Scan directory for images"""
         root_path = Path(root_dir).expanduser()
         logger.info(f"Scanning {root_path}...")
@@ -416,12 +431,12 @@ class PhotoOrganizer:
         conn.commit()
         conn.close()
 
-        logger.info(f"✅ Scan complete!")
+        logger.info("✅ Scan complete!")
         logger.info(f"   Found: {found_count} images")
         logger.info(f"   Indexed: {processed_count} new photos")
         logger.info(f"   Duplicates: {duplicate_count}")
 
-    def get_stats(self):
+    def get_stats(self) -> dict[str, Any]:
         """Get database statistics"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -473,7 +488,7 @@ class PhotoOrganizer:
             'storage_locations': storage_locations
         }
 
-    def find_duplicates(self):
+    def find_duplicates(self) -> list[dict[str, Any]]:
         """Find all duplicate photos"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -551,23 +566,23 @@ if __name__ == "__main__":
         conn.close()
 
         print(f"\n✅ Categorized {categorized} photos!")
-        print(f"\n📊 Category Breakdown:")
+        print("\n📊 Category Breakdown:")
         for category, count in sorted(categories_count.items(), key=lambda x: x[1], reverse=True):
             print(f"   {category}: {count:,} photos")
 
     elif args.stats:
         stats = organizer.get_stats()
-        print(f"\n📊 Photo Database Statistics:")
+        print("\n📊 Photo Database Statistics:")
         print(f"   Total photos: {stats['total']:,}")
         print(f"   Total size: {stats['total_size_gb']:.2f} GB")
         print(f"   Duplicate groups: {stats['duplicate_groups']}")
 
-        print(f"\n   📍 Storage Locations:")
+        print("\n   📍 Storage Locations:")
         for location, volume, count, size in stats['storage_locations']:
             size_gb = size / (1024**3) if size else 0
             print(f"      {location} ({volume}): {count:,} photos, {size_gb:.2f} GB")
 
-        print(f"\n   Formats:")
+        print("\n   Formats:")
         for fmt, count in stats['formats']:
             print(f"      {fmt}: {count:,}")
 

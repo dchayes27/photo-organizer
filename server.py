@@ -4,19 +4,19 @@ Photo Organizer Web Server
 Browse, search, and manage your photo collection
 """
 
+import json
+import os
 import sqlite3
 import subprocess
-import os
-import shutil
-import json
 from pathlib import Path
-from pydantic import BaseModel
-from typing import Optional, List
-from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.middleware.cors import CORSMiddleware
+from typing import Any
+
 import uvicorn
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 app = FastAPI(title="Photo Organizer")
 
@@ -38,23 +38,23 @@ CONFIG_PATH = "scan_config.json"
 
 # Pydantic models
 class PhotoUpdate(BaseModel):
-    category: Optional[str] = None
-    file_path: Optional[str] = None
-    hidden: Optional[bool] = None
+    category: str | None = None
+    file_path: str | None = None
+    hidden: bool | None = None
 
 class ScanConfig(BaseModel):
-    scan_paths: List[str]
-    exclude_patterns: List[str]
-    additional_excludes: List[str]
+    scan_paths: list[str]
+    exclude_patterns: list[str]
+    additional_excludes: list[str]
 
-def get_db():
+def get_db() -> sqlite3.Connection:
     """Get database connection"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 @app.get("/", response_class=HTMLResponse)
-async def root():
+async def root() -> FileResponse | HTMLResponse:
     """Serve the main gallery page"""
     html_path = Path("static/index.html")
     if html_path.exists():
@@ -62,7 +62,7 @@ async def root():
     return HTMLResponse("<h1>Photo Organizer</h1><p>Run scanner first: python photo_scanner.py --scan ~</p>")
 
 @app.get("/api/stats")
-async def get_stats():
+async def get_stats() -> dict[str, Any]:
     """Get database statistics"""
     conn = get_db()
     cursor = conn.cursor()
@@ -108,13 +108,13 @@ async def get_stats():
 async def get_photos(
     limit: int = 100,
     offset: int = 0,
-    format: str = None,
-    category: str = None,
-    search: str = None,
+    format: str | None = None,
+    category: str | None = None,
+    search: str | None = None,
     sort_by: str = "date_modified",
     order: str = "DESC",
     show_hidden: bool = False
-):
+) -> dict[str, Any]:
     """Get photos with filtering and pagination"""
     conn = get_db()
     cursor = conn.cursor()
@@ -192,7 +192,7 @@ async def get_photos(
     }
 
 @app.get("/api/duplicates")
-async def get_duplicates():
+async def get_duplicates() -> dict[str, list[dict[str, Any]]]:
     """Get all duplicate photo groups"""
     conn = get_db()
     cursor = conn.cursor()
@@ -239,7 +239,7 @@ async def get_duplicates():
     return {"duplicates": duplicate_groups}
 
 @app.post("/api/open/{photo_id}")
-async def open_photo(photo_id: int):
+async def open_photo(photo_id: int) -> dict[str, Any]:
     """Open photo in Finder"""
     conn = get_db()
     cursor = conn.cursor()
@@ -259,7 +259,7 @@ async def open_photo(photo_id: int):
     return {"success": True, "path": file_path}
 
 @app.delete("/api/photo/{photo_id}")
-async def delete_photo(photo_id: int):
+async def delete_photo(photo_id: int) -> dict[str, Any]:
     """Remove photo from database (doesn't delete file)"""
     conn = get_db()
     cursor = conn.cursor()
@@ -275,7 +275,7 @@ async def delete_photo(photo_id: int):
         raise HTTPException(status_code=404, detail="Photo not found")
 
 @app.get("/api/photo/{photo_id}")
-async def get_photo_details(photo_id: int):
+async def get_photo_details(photo_id: int) -> dict[str, Any]:
     """Get detailed information for a single photo"""
     conn = get_db()
     cursor = conn.cursor()
@@ -312,7 +312,7 @@ async def get_photo_details(photo_id: int):
     }
 
 @app.patch("/api/photo/{photo_id}")
-async def update_photo(photo_id: int, update: PhotoUpdate):
+async def update_photo(photo_id: int, update: PhotoUpdate) -> dict[str, Any]:
     """Update photo metadata"""
     conn = get_db()
     cursor = conn.cursor()
@@ -352,7 +352,7 @@ async def update_photo(photo_id: int, update: PhotoUpdate):
             updates["file_path"] = str(new_file)
         except Exception as e:
             conn.close()
-            raise HTTPException(status_code=500, detail=f"Failed to rename file: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to rename file: {str(e)}") from e
 
     # Update database
     if updates:
@@ -365,7 +365,7 @@ async def update_photo(photo_id: int, update: PhotoUpdate):
     return {"success": True, "message": "Photo updated", "updates": updates}
 
 @app.get("/api/categories")
-async def get_categories():
+async def get_categories() -> dict[str, list[str]]:
     """Get list of all unique categories"""
     conn = get_db()
     cursor = conn.cursor()
@@ -383,7 +383,7 @@ async def get_categories():
     return {"categories": categories}
 
 @app.get("/api/scan-config")
-async def get_scan_config():
+async def get_scan_config() -> dict[str, Any]:
     """Get scan configuration"""
     if not os.path.exists(CONFIG_PATH):
         # Return default config
@@ -393,12 +393,12 @@ async def get_scan_config():
             "additional_excludes": []
         }
 
-    with open(CONFIG_PATH, 'r') as f:
+    with open(CONFIG_PATH) as f:
         config = json.load(f)
     return config
 
 @app.post("/api/scan-config")
-async def update_scan_config(config: ScanConfig):
+async def update_scan_config(config: ScanConfig) -> dict[str, Any]:
     """Update scan configuration"""
     with open(CONFIG_PATH, 'w') as f:
         json.dump(config.dict(), f, indent=2)
