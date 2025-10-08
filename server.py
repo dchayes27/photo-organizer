@@ -21,12 +21,18 @@ from pydantic import BaseModel
 app = FastAPI(title="Photo Organizer")
 
 # Add CORS middleware to allow Tauri app to access the API
+# Only allow specific origins and methods for security
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["tauri://localhost", "http://localhost:1420", "http://localhost:3000"],
+    allow_origins=[
+        "tauri://localhost",
+        "http://localhost:1420",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # Mount thumbnail directory
@@ -116,6 +122,16 @@ async def get_photos(
     show_hidden: bool = False
 ) -> dict[str, Any]:
     """Get photos with filtering and pagination"""
+    # Validate pagination parameters
+    if limit < 1 or limit > 1000:
+        raise HTTPException(status_code=400, detail="Limit must be between 1 and 1000")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="Offset must be non-negative")
+
+    # Validate and sanitize search input
+    if search and len(search) > 500:
+        raise HTTPException(status_code=400, detail="Search query too long (max 500 characters)")
+
     conn = get_db()
     cursor = conn.cursor()
 
@@ -128,24 +144,34 @@ async def get_photos(
         where_clauses.append("(hidden = 0 OR hidden IS NULL)")
 
     if format:
-        where_clauses.append("format = ?")
-        params.append(format)
+        # Sanitize format input
+        format_clean = format.strip()
+        if format_clean:
+            where_clauses.append("format = ?")
+            params.append(format_clean)
 
     if category:
-        where_clauses.append("category = ?")
-        params.append(category)
+        # Sanitize category input
+        category_clean = category.strip()
+        if category_clean:
+            where_clauses.append("category = ?")
+            params.append(category_clean)
 
     if search:
-        where_clauses.append("file_path LIKE ?")
-        params.append(f"%{search}%")
+        # Sanitize search input
+        search_clean = search.strip()
+        if search_clean:
+            where_clauses.append("file_path LIKE ?")
+            params.append(f"%{search_clean}%")
 
     where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
-    # Valid sort columns
+    # Valid sort columns (whitelist to prevent SQL injection)
     valid_sorts = ["date_modified", "date_taken", "file_size", "width", "height"]
     if sort_by not in valid_sorts:
         sort_by = "date_modified"
 
+    # Validate order direction
     order = "DESC" if order.upper() == "DESC" else "ASC"
 
     # Get total count
@@ -241,6 +267,10 @@ async def get_duplicates() -> dict[str, list[dict[str, Any]]]:
 @app.post("/api/open/{photo_id}")
 async def open_photo(photo_id: int) -> dict[str, Any]:
     """Open photo in Finder"""
+    # Validate photo ID
+    if photo_id < 1:
+        raise HTTPException(status_code=400, detail="Invalid photo ID")
+
     conn = get_db()
     cursor = conn.cursor()
 
@@ -253,21 +283,48 @@ async def open_photo(photo_id: int) -> dict[str, Any]:
 
     file_path = row["file_path"]
 
-    # Open in Finder (macOS)
-    subprocess.run(["open", "-R", file_path])
+    # Validate file still exists
+    if not Path(file_path).exists():
+        raise HTTPException(status_code=404, detail=f"File no longer exists: {file_path}")
+
+    # Open in Finder (macOS) - check platform first
+    import sys
+    try:
+        if sys.platform == "darwin":
+            subprocess.run(["open", "-R", file_path], check=True, timeout=5)
+        elif sys.platform == "win32":
+            subprocess.run(["explorer", "/select,", file_path], check=True, timeout=5)
+        else:  # Linux and others
+            subprocess.run(["xdg-open", Path(file_path).parent], check=True, timeout=5)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="File manager command timed out") from None
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to open file manager: {e}") from e
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="File manager not found on this system") from None
 
     return {"success": True, "path": file_path}
 
 @app.delete("/api/photo/{photo_id}")
 async def delete_photo(photo_id: int) -> dict[str, Any]:
     """Remove photo from database (doesn't delete file)"""
+    # Validate photo ID
+    if photo_id < 1:
+        raise HTTPException(status_code=400, detail="Invalid photo ID")
+
     conn = get_db()
     cursor = conn.cursor()
 
-    cursor.execute("DELETE FROM photos WHERE id = ?", (photo_id,))
-    deleted = cursor.rowcount
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute("DELETE FROM photos WHERE id = ?", (photo_id,))
+        deleted = cursor.rowcount
+        conn.commit()
+    except sqlite3.Error as e:
+        conn.rollback()
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"Database error: {e}") from e
+    finally:
+        conn.close()
 
     if deleted:
         return {"success": True, "message": f"Photo {photo_id} removed from index"}
@@ -314,6 +371,18 @@ async def get_photo_details(photo_id: int) -> dict[str, Any]:
 @app.patch("/api/photo/{photo_id}")
 async def update_photo(photo_id: int, update: PhotoUpdate) -> dict[str, Any]:
     """Update photo metadata"""
+    # Validate photo ID
+    if photo_id < 1:
+        raise HTTPException(status_code=400, detail="Invalid photo ID")
+
+    # Validate category length if provided
+    if update.category and len(update.category) > 100:
+        raise HTTPException(status_code=400, detail="Category name too long (max 100 characters)")
+
+    # Validate file path if provided
+    if update.file_path and len(update.file_path) > 1000:
+        raise HTTPException(status_code=400, detail="File path too long (max 1000 characters)")
+
     conn = get_db()
     cursor = conn.cursor()
 
@@ -330,7 +399,8 @@ async def update_photo(photo_id: int, update: PhotoUpdate) -> dict[str, Any]:
 
     # Handle category update
     if update.category is not None:
-        updates["category"] = update.category
+        category_clean = update.category.strip() if update.category else None
+        updates["category"] = category_clean
 
     # Handle hidden flag update
     if update.hidden is not None:

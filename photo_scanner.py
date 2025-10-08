@@ -99,10 +99,24 @@ class PhotoOrganizer:
         thumbnail_dir: str = 'thumbnails',
         config_path: str = 'scan_config.json'
     ) -> None:
-        self.db_path: str = db_path
-        self.thumbnail_dir: Path = Path(thumbnail_dir)
-        self.thumbnail_dir.mkdir(exist_ok=True)
-        self.config_path: str = config_path
+        # Validate and sanitize inputs
+        if not db_path or not db_path.strip():
+            raise ValueError("Database path cannot be empty")
+        if not thumbnail_dir or not thumbnail_dir.strip():
+            raise ValueError("Thumbnail directory cannot be empty")
+
+        self.db_path: str = db_path.strip()
+        self.thumbnail_dir: Path = Path(thumbnail_dir.strip())
+
+        # Create thumbnail directory with proper error handling
+        try:
+            self.thumbnail_dir.mkdir(exist_ok=True, parents=True)
+        except PermissionError as e:
+            raise PermissionError(f"Cannot create thumbnail directory at {self.thumbnail_dir}: {e}") from e
+        except OSError as e:
+            raise OSError(f"Failed to create thumbnail directory at {self.thumbnail_dir}: {e}") from e
+
+        self.config_path: str = config_path.strip()
         self.exclude_patterns: set[str] = set()
         self.load_config()
         self.init_database()
@@ -110,11 +124,32 @@ class PhotoOrganizer:
     def load_config(self) -> None:
         """Load scan configuration from JSON file"""
         if os.path.exists(self.config_path):
-            with open(self.config_path) as f:
-                config: dict[str, Any] = json.load(f)
-                self.exclude_patterns = set(config.get('exclude_patterns', [])) | set(
-                    config.get('additional_excludes', [])
-                )
+            try:
+                with open(self.config_path) as f:
+                    config: dict[str, Any] = json.load(f)
+
+                # Validate config structure
+                exclude_patterns = config.get('exclude_patterns', [])
+                additional_excludes = config.get('additional_excludes', [])
+
+                if not isinstance(exclude_patterns, list) or not isinstance(additional_excludes, list):
+                    logger.warning(f"Invalid config format in {self.config_path}, using defaults")
+                    self.exclude_patterns = SKIP_DIRS
+                else:
+                    self.exclude_patterns = set(exclude_patterns) | set(additional_excludes)
+
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in config file {self.config_path}: {e}")
+                logger.info("Using default exclude patterns")
+                self.exclude_patterns = SKIP_DIRS
+            except PermissionError as e:
+                logger.error(f"Permission denied reading config file {self.config_path}: {e}")
+                logger.info("Using default exclude patterns")
+                self.exclude_patterns = SKIP_DIRS
+            except Exception as e:
+                logger.error(f"Error loading config file {self.config_path}: {e}")
+                logger.info("Using default exclude patterns")
+                self.exclude_patterns = SKIP_DIRS
         else:
             # Fall back to hardcoded SKIP_DIRS
             self.exclude_patterns = SKIP_DIRS
@@ -122,36 +157,44 @@ class PhotoOrganizer:
 
     def init_database(self) -> None:
         """Initialize SQLite database"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS photos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_path TEXT UNIQUE NOT NULL,
-                file_hash TEXT NOT NULL,
-                file_size INTEGER NOT NULL,
-                storage_location TEXT,
-                volume_name TEXT,
-                width INTEGER,
-                height INTEGER,
-                format TEXT,
-                date_taken TIMESTAMP,
-                date_modified TIMESTAMP,
-                thumbnail_path TEXT,
-                category TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS photos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_path TEXT UNIQUE NOT NULL,
+                    file_hash TEXT NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    storage_location TEXT,
+                    volume_name TEXT,
+                    width INTEGER,
+                    height INTEGER,
+                    format TEXT,
+                    date_taken TIMESTAMP,
+                    date_modified TIMESTAMP,
+                    thumbnail_path TEXT,
+                    category TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
-        # Index for fast duplicate detection
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_hash ON photos(file_hash)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_date_taken ON photos(date_taken)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_size ON photos(file_size)")
+            # Index for fast duplicate detection
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_hash ON photos(file_hash)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_date_taken ON photos(date_taken)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_size ON photos(file_size)")
 
-        conn.commit()
-        conn.close()
-        logger.info(f"Database initialized at {self.db_path}")
+            conn.commit()
+            conn.close()
+            logger.info(f"Database initialized at {self.db_path}")
+
+        except sqlite3.OperationalError as e:
+            raise sqlite3.OperationalError(f"Failed to initialize database at {self.db_path}: {e}") from e
+        except PermissionError as e:
+            raise PermissionError(f"Permission denied creating database at {self.db_path}: {e}") from e
+        except Exception as e:
+            raise RuntimeError(f"Unexpected error initializing database: {e}") from e
 
     def calculate_hash(self, file_path: Path, chunk_size: int = 8192) -> str | None:
         """Calculate SHA256 hash of file"""
@@ -328,7 +371,28 @@ class PhotoOrganizer:
 
     def scan_directory(self, root_dir: str, max_depth: int = 10) -> None:
         """Scan directory for images"""
-        root_path = Path(root_dir).expanduser()
+        # Validate input
+        if not root_dir or not root_dir.strip():
+            raise ValueError("Scan directory path cannot be empty")
+
+        if max_depth < 0:
+            raise ValueError("max_depth must be non-negative")
+
+        root_path = Path(root_dir.strip()).expanduser().resolve()
+
+        # Validate directory exists and is accessible
+        if not root_path.exists():
+            raise FileNotFoundError(f"Directory does not exist: {root_path}")
+
+        if not root_path.is_dir():
+            raise NotADirectoryError(f"Path is not a directory: {root_path}")
+
+        try:
+            # Test if directory is readable
+            list(root_path.iterdir())
+        except PermissionError as e:
+            raise PermissionError(f"Permission denied accessing directory: {root_path}") from e
+
         logger.info(f"Scanning {root_path}...")
 
         found_count = 0
@@ -363,9 +427,16 @@ class PhotoOrganizer:
                     continue
 
                 # Get file stats
-                stat = file_path.stat()
-                file_size = stat.st_size
-                date_modified = datetime.fromtimestamp(stat.st_mtime)
+                try:
+                    stat = file_path.stat()
+                    file_size = stat.st_size
+                    date_modified = datetime.fromtimestamp(stat.st_mtime)
+                except (FileNotFoundError, PermissionError) as e:
+                    logger.warning(f"Cannot access file {file_path}: {e}")
+                    continue
+                except OSError as e:
+                    logger.warning(f"OS error reading file stats for {file_path}: {e}")
+                    continue
 
                 # Check for duplicate by hash and size
                 cursor.execute(
